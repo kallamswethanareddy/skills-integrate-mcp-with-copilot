@@ -5,7 +5,7 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
@@ -19,7 +19,18 @@ current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
 
-# In-memory activity database
+from typing import Optional
+
+# In-memory user and activity database
+roles = ["admin", "teacher", "student"]
+
+# Example users (for demo/testing)
+users = {
+    "admin@mergington.edu": {"name": "Principal Skinner", "role": "admin"},
+    "teacher@mergington.edu": {"name": "Ms. Krabappel", "role": "teacher"},
+    "student@mergington.edu": {"name": "Bart Simpson", "role": "student"},
+    # Add more users as needed
+}
 activities = {
     "Chess Club": {
         "description": "Learn strategies and compete in chess tournaments",
@@ -84,12 +95,21 @@ def root():
 
 
 @app.get("/activities")
-def get_activities():
+def get_activities(role: Optional[str] = Query(None), email: Optional[str] = Query(None)):
+    """
+    Return activities. If role is provided, filter or restrict as needed.
+    """
+    # Example: Only teachers/admins see participant emails, students see only counts
+    if role == "student":
+        return {
+            k: {**v, "participants": len(v["participants"])}
+            for k, v in activities.items()
+        }
     return activities
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(activity_name: str, email: str, role: Optional[str] = Query("student")):
     """Sign up a student for an activity"""
     # Validate activity exists
     if activity_name not in activities:
@@ -97,6 +117,10 @@ def signup_for_activity(activity_name: str, email: str):
 
     # Get the specific activity
     activity = activities[activity_name]
+
+    # Role-based access control: Only students and teachers can sign up
+    if role not in ["student", "teacher"]:
+        raise HTTPException(status_code=403, detail="Only students or teachers can sign up for activities")
 
     # Validate student is not already signed up
     if email in activity["participants"]:
@@ -107,11 +131,11 @@ def signup_for_activity(activity_name: str, email: str):
 
     # Add student
     activity["participants"].append(email)
-    return {"message": f"Signed up {email} for {activity_name}"}
+    return {"message": f"Signed up {email} for {activity_name} as {role}"}
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(activity_name: str, email: str, role: Optional[str] = Query("student")):
     """Unregister a student from an activity"""
     # Validate activity exists
     if activity_name not in activities:
@@ -119,6 +143,10 @@ def unregister_from_activity(activity_name: str, email: str):
 
     # Get the specific activity
     activity = activities[activity_name]
+
+    # Role-based access control: Only teachers or the student themselves can unregister
+    if role not in ["student", "teacher"]:
+        raise HTTPException(status_code=403, detail="Only teachers or the student can unregister")
 
     # Validate student is signed up
     if email not in activity["participants"]:
@@ -129,4 +157,4 @@ def unregister_from_activity(activity_name: str, email: str):
 
     # Remove student
     activity["participants"].remove(email)
-    return {"message": f"Unregistered {email} from {activity_name}"}
+    return {"message": f"Unregistered {email} from {activity_name} as {role}"}
